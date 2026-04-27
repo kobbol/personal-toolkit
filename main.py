@@ -9,6 +9,8 @@ DATA_FILE = "expenses.json"
 LIMITS_FILE = "limits.json"
 # Имя файла для хранения списка категорий.
 CATEGORIES_FILE = "categories.json"
+# Имя файла для хранения соответствия "позиция -> категория".
+ITEM_CATEGORY_FILE = "item_categories.json"
 
 # Базовые категории, которые создаются по умолчанию.
 DEFAULT_CATEGORIES = [
@@ -47,6 +49,35 @@ def save_expenses(expenses):
     """Сохраняет список расходов в JSON-файл."""
     with open(DATA_FILE, "w", encoding="utf-8") as file:
         json.dump(expenses, file, ensure_ascii=False, indent=2)
+
+
+def normalize_item_name(item_name):
+    """Нормализует наименование товара/услуги для хранения и поиска."""
+    return " ".join(item_name.strip().lower().split())
+
+
+def load_item_categories():
+    """
+    Загружает словарь соответствий "позиция -> категория".
+    Пример: {"такси": "Транспорт", "капучино": "Еда"}
+    """
+    try:
+        with open(ITEM_CATEGORY_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+            if isinstance(data, dict):
+                return data
+            return {}
+    except FileNotFoundError:
+        save_item_categories({})
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def save_item_categories(mapping):
+    """Сохраняет словарь соответствий 'позиция -> категория'."""
+    with open(ITEM_CATEGORY_FILE, "w", encoding="utf-8") as file:
+        json.dump(mapping, file, ensure_ascii=False, indent=2)
 
 
 def normalize_category(category):
@@ -248,11 +279,8 @@ def pick_category_interactive():
         print("Номер вне диапазона. Повторите ввод.")
 
 
-def add_expense():
-    """Интерактивно добавляет один расход в файл."""
-    expenses = load_expenses()
-
-    # Запрашиваем сумму и проверяем корректность ввода.
+def input_amount():
+    """Запрашивает сумму и возвращает корректное число."""
     while True:
         amount_input = input("Введите сумму: ").strip().replace(",", ".")
         try:
@@ -260,30 +288,106 @@ def add_expense():
             if amount <= 0:
                 print("Сумма должна быть больше нуля.")
                 continue
-            break
+            return amount
         except ValueError:
             print("Некорректная сумма. Введите число, например 250 или 99.50.")
 
-    # Категория выбирается из фиксированного списка.
-    category = pick_category_interactive()
 
-    # Дата опциональна: если пусто, используем сегодняшнюю.
+def input_date():
+    """Запрашивает дату или ставит сегодняшнюю, если ввод пустой."""
     while True:
         date_input = input("Введите дату (YYYY-MM-DD) или Enter для сегодняшней: ").strip()
         if not date_input:
-            date_value = datetime.now().strftime("%Y-%m-%d")
-            break
+            return datetime.now().strftime("%Y-%m-%d")
         parsed = parse_date(date_input)
         if parsed is None:
             print("Некорректный формат даты. Используйте YYYY-MM-DD.")
             continue
-        date_value = parsed.strftime("%Y-%m-%d")
-        break
+        return parsed.strftime("%Y-%m-%d")
 
-    # Комментарий необязателен.
+
+def resolve_category_for_item(item_name, item_categories):
+    """
+    Возвращает категорию для позиции.
+    Если позиция известна, берёт сохранённую категорию, иначе предлагает выбор.
+    """
+    normalized_item = normalize_item_name(item_name)
+    if normalized_item in item_categories:
+        category = item_categories[normalized_item]
+        print(f"Для позиции '{item_name}' использована сохранённая категория: {category}")
+        return category
+
+    print("Для этой позиции категория ещё не задана.")
+    category = pick_category_interactive()
+    return category
+
+
+def add_expense():
+    """Интерактивно добавляет один расход в файл."""
+    expenses = load_expenses()
+    item_categories = load_item_categories()
+
+    # Сначала запрашиваем наименование товара/услуги.
+    while True:
+        item_name = input("Введите товар/услугу: ").strip()
+        if item_name:
+            break
+        print("Наименование не может быть пустым.")
+
+    amount = input_amount()
+    category = resolve_category_for_item(item_name, item_categories)
+    date_value = input_date()
     comment = input("Комментарий (необязательно): ").strip()
 
+    # Перед сохранением даём возможность исправить ключевые поля.
+    while True:
+        print("\nПроверьте запись перед сохранением:")
+        print(f"  Товар/услуга: {item_name}")
+        print(f"  Сумма: {amount:.2f}")
+        print(f"  Категория: {category}")
+        print(f"  Дата: {date_value}")
+        print(f"  Комментарий: {comment if comment else '(пусто)'}")
+        print("Действия: save | edit item | edit amount | edit category | edit date | edit comment | cancel")
+
+        action = input("Введите действие: ").strip().lower()
+        if action == "save":
+            break
+        if action == "cancel":
+            print("Добавление записи отменено.")
+            return
+        if action == "edit item":
+            while True:
+                new_item = input("Введите товар/услугу: ").strip()
+                if new_item:
+                    item_name = new_item
+                    break
+                print("Наименование не может быть пустым.")
+            # При смене товара пытаемся автоматически подобрать категорию заново.
+            category = resolve_category_for_item(item_name, item_categories)
+            continue
+        if action == "edit amount":
+            amount = input_amount()
+            continue
+        if action == "edit category":
+            category = pick_category_interactive()
+            continue
+        if action == "edit date":
+            date_value = input_date()
+            continue
+        if action == "edit comment":
+            comment = input("Комментарий (необязательно): ").strip()
+            continue
+
+        print("Неизвестное действие. Введите одно из предложенных значений.")
+
+    # Сохраняем/обновляем связь 'позиция -> категория' после подтверждения записи.
+    normalized_item = normalize_item_name(item_name)
+    item_categories[normalized_item] = category
+    save_item_categories(item_categories)
+    print(f"Связка сохранена: '{item_name}' -> '{category}'")
+
     expense = {
+        "item": item_name,
         "amount": amount,
         "category": category,
         "date": date_value,
@@ -352,14 +456,15 @@ def list_expenses():
         print(f"\nДата: {date_key}")
         day_total = 0.0
         for item in grouped[date_key]:
+            item_name = item.get("item", "Без названия")
             amount = float(item.get("amount", 0))
             category = item.get("category", "Без категории")
             comment = item.get("comment", "")
             day_total += amount
             if comment:
-                print(f"  - {amount:.2f} | {category} | {comment}")
+                print(f"  - {item_name} | {amount:.2f} | {category} | {comment}")
             else:
-                print(f"  - {amount:.2f} | {category}")
+                print(f"  - {item_name} | {amount:.2f} | {category}")
         print(f"  Итого за день: {day_total:.2f}")
 
 
@@ -557,7 +662,7 @@ def add_category():
 
 def print_help():
     """Печатает подсказку по запуску программы."""
-    print("Использование:")
+    print("Доступные команды:")
     print("  python main.py add")
     print("  python main.py list")
     print("  python main.py stats")
@@ -595,44 +700,39 @@ def get_args_from_argv(argv):
     return args
 
 
-def main():
-    """
-    Точка входа.
-    Ожидает аргументы в одном из форматов:
-    - python main.py <command>
-    - python main.py expenses <command>
-    """
-    args = get_args_from_argv(sys.argv)
+def run_command(args):
+    """Выполняет одну команду приложения и возвращает True/False (успех/ошибка)."""
     if not args:
-        print("Некорректные аргументы запуска.")
         print_help()
-        return
+        return False
 
     command = args[0]
-
     if command == "add":
         if len(args) != 1:
             print("Команда 'add' не принимает дополнительных аргументов.")
             print_help()
-            return
+            return False
         add_expense()
+        return True
     elif command == "list":
         if len(args) != 1:
             print("Команда 'list' не принимает дополнительных аргументов.")
             print_help()
-            return
+            return False
         list_expenses()
+        return True
     elif command == "stats":
         if len(args) != 1:
             print("Команда 'stats' не принимает дополнительных аргументов.")
             print_help()
-            return
+            return False
         show_stats()
+        return True
     elif command == "limits":
         if len(args) != 2:
             print("Используйте: limits set | limits zero | limits remove | limits list")
             print_help()
-            return
+            return False
         subcommand = args[1]
         if subcommand == "set":
             set_limit()
@@ -645,11 +745,13 @@ def main():
         else:
             print(f"Неизвестная подкоманда limits: {subcommand}")
             print_help()
+            return False
+        return True
     elif command == "categories":
         if len(args) != 2:
             print("Используйте: categories list или categories add")
             print_help()
-            return
+            return False
         subcommand = args[1]
         if subcommand == "list":
             list_categories()
@@ -658,9 +760,59 @@ def main():
         else:
             print(f"Неизвестная подкоманда categories: {subcommand}")
             print_help()
+            return False
+        return True
     else:
         print(f"Неизвестная команда: {command}")
         print_help()
+        return False
+
+
+def run_interactive_mode():
+    """
+    Запускает интерактивный режим:
+    - показывает подсказки при старте
+    - принимает команды до выхода
+    """
+    print("Личный учёт расходов — интерактивный режим")
+    print("Введите одну из команд: add, list, stats, limits ..., categories ...")
+    print("Дополнительно: help — показать подсказки, exit — выйти\n")
+    print_help()
+    print("")
+
+    while True:
+        raw = input("expenses> ").strip()
+        if not raw:
+            print("Введите команду или 'help'.")
+            continue
+
+        if raw.lower() in ("exit", "quit", "q"):
+            print("Выход из приложения.")
+            break
+
+        if raw.lower() in ("help", "h", "?"):
+            print_help()
+            print("")
+            continue
+
+        command_args = raw.split()
+        run_command(command_args)
+        print("")
+
+
+def main():
+    """
+    Точка входа.
+    Поддерживает:
+    - запуск с аргументами (python main.py <command>)
+    - интерактивный режим (python main.py)
+    """
+    args = get_args_from_argv(sys.argv)
+    if not args:
+        run_interactive_mode()
+        return
+
+    run_command(args)
 
 
 if __name__ == "__main__":
