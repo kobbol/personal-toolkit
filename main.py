@@ -1,4 +1,7 @@
+import html
 import json
+import math
+import os
 import sys
 from datetime import datetime
 
@@ -11,6 +14,8 @@ LIMITS_FILE = "limits.json"
 CATEGORIES_FILE = "categories.json"
 # Имя файла для хранения соответствия "позиция -> категория".
 ITEM_CATEGORY_FILE = "item_categories.json"
+# Имя HTML-файла с визуальным отчётом.
+REPORT_FILE = "expense_report.html"
 
 # Базовые категории, которые создаются по умолчанию.
 DEFAULT_CATEGORIES = [
@@ -433,6 +438,354 @@ def get_current_month_expenses(expenses):
     return result
 
 
+def calculate_category_totals(expenses):
+    """Считает сумму расходов по категориям."""
+    category_totals = {}
+    for expense in expenses:
+        category = expense.get("category", "Без категории")
+        amount = float(expense.get("amount", 0))
+        if category not in category_totals:
+            category_totals[category] = 0.0
+        category_totals[category] += amount
+    return category_totals
+
+
+def calculate_daily_totals(expenses):
+    """Считает сумму расходов по дням."""
+    daily_totals = {}
+    for expense in expenses:
+        date_text = expense.get("date", "")
+        amount = float(expense.get("amount", 0))
+        if date_text not in daily_totals:
+            daily_totals[date_text] = 0.0
+        daily_totals[date_text] += amount
+    return dict(sorted(daily_totals.items()))
+
+
+def get_chart_palette():
+    """Возвращает палитру цветов для диаграмм."""
+    return [
+        "#4F46E5",
+        "#0EA5E9",
+        "#10B981",
+        "#F59E0B",
+        "#EF4444",
+        "#8B5CF6",
+        "#EC4899",
+        "#14B8A6",
+        "#F97316",
+        "#84CC16",
+    ]
+
+
+def build_pie_chart_svg(category_totals):
+    """Строит SVG круговой диаграммы по категориям."""
+    width = 860
+    height = 360
+    center_x = 180
+    center_y = 180
+    radius = 110
+    palette = get_chart_palette()
+    total = sum(category_totals.values())
+
+    svg_parts = [
+        f'<svg viewBox="0 0 {width} {height}" class="chart" role="img" '
+        'aria-label="Круговая диаграмма расходов по категориям">'
+    ]
+
+    if total <= 0:
+        svg_parts.append(
+            '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" '
+            'class="empty-label">Нет данных для диаграммы</text>'
+        )
+        svg_parts.append("</svg>")
+        return "".join(svg_parts)
+
+    sorted_categories = sorted(category_totals.items(), key=lambda item: item[1], reverse=True)
+    start_angle = -math.pi / 2
+
+    for index, (category, amount) in enumerate(sorted_categories):
+        fraction = amount / total
+        sweep_angle = fraction * math.pi * 2
+        end_angle = start_angle + sweep_angle
+        large_arc_flag = 1 if sweep_angle > math.pi else 0
+
+        start_x = center_x + radius * math.cos(start_angle)
+        start_y = center_y + radius * math.sin(start_angle)
+        end_x = center_x + radius * math.cos(end_angle)
+        end_y = center_y + radius * math.sin(end_angle)
+        color = palette[index % len(palette)]
+
+        if len(sorted_categories) == 1:
+            svg_parts.append(
+                f'<circle cx="{center_x}" cy="{center_y}" r="{radius}" fill="{color}"></circle>'
+            )
+        else:
+            path = (
+                f"M {center_x} {center_y} "
+                f"L {start_x:.2f} {start_y:.2f} "
+                f"A {radius} {radius} 0 {large_arc_flag} 1 {end_x:.2f} {end_y:.2f} Z"
+            )
+            svg_parts.append(f'<path d="{path}" fill="{color}"></path>')
+
+        legend_y = 45 + (index * 28)
+        percent = fraction * 100
+        safe_category = html.escape(category)
+        svg_parts.append(
+            f'<rect x="390" y="{legend_y - 12}" width="14" height="14" rx="3" fill="{color}"></rect>'
+        )
+        svg_parts.append(
+            f'<text x="414" y="{legend_y}" class="legend-label">'
+            f"{safe_category}: {amount:.2f} ({percent:.1f}%)</text>"
+        )
+        start_angle = end_angle
+
+    svg_parts.append("</svg>")
+    return "".join(svg_parts)
+
+
+def build_line_chart_svg(daily_totals):
+    """Строит SVG линейного графика расходов по дням."""
+    width = 860
+    height = 360
+    left = 70
+    right = width - 30
+    top = 30
+    bottom = height - 55
+    plot_width = right - left
+    plot_height = bottom - top
+    items = list(daily_totals.items())
+
+    svg_parts = [
+        f'<svg viewBox="0 0 {width} {height}" class="chart" role="img" '
+        'aria-label="Линейный график расходов по дням">'
+    ]
+
+    if not items:
+        svg_parts.append(
+            '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" '
+            'class="empty-label">Нет данных для графика</text>'
+        )
+        svg_parts.append("</svg>")
+        return "".join(svg_parts)
+
+    max_value = max(amount for _, amount in items)
+    if max_value <= 0:
+        max_value = 1.0
+
+    for step in range(6):
+        value = max_value * (5 - step) / 5
+        y = top + (plot_height * step / 5)
+        svg_parts.append(
+            f'<line x1="{left}" y1="{y:.2f}" x2="{right}" y2="{y:.2f}" class="grid-line"></line>'
+        )
+        svg_parts.append(
+            f'<text x="{left - 12}" y="{y + 4:.2f}" text-anchor="end" class="axis-label">{value:.0f}</text>'
+        )
+
+    svg_parts.append(f'<line x1="{left}" y1="{bottom}" x2="{right}" y2="{bottom}" class="axis-line"></line>')
+    svg_parts.append(f'<line x1="{left}" y1="{top}" x2="{left}" y2="{bottom}" class="axis-line"></line>')
+
+    points = []
+    for index, (date_text, amount) in enumerate(items):
+        x = left if len(items) == 1 else left + (plot_width * index / (len(items) - 1))
+        y = bottom - ((amount / max_value) * plot_height)
+        points.append((x, y, date_text, amount))
+
+    polyline_points = " ".join(f"{x:.2f},{y:.2f}" for x, y, _, _ in points)
+    svg_parts.append(f'<polyline points="{polyline_points}" class="line-path"></polyline>')
+
+    for x, y, date_text, amount in points:
+        day_label = html.escape(date_text[8:10] if len(date_text) >= 10 else date_text)
+        full_date = html.escape(date_text)
+        svg_parts.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="4.5" class="line-point"></circle>')
+        svg_parts.append(
+            f'<text x="{x:.2f}" y="{bottom + 22}" text-anchor="middle" class="axis-label">{day_label}</text>'
+        )
+        svg_parts.append(
+            f'<text x="{x:.2f}" y="{y - 12:.2f}" text-anchor="middle" class="point-label">'
+            f"{amount:.0f}</text>"
+        )
+        svg_parts.append(
+            f'<title>{full_date}: {amount:.2f}</title>'
+        )
+
+    svg_parts.append("</svg>")
+    return "".join(svg_parts)
+
+
+def generate_visual_report():
+    """Создаёт HTML-отчёт с диаграммой и графиком по расходам текущего месяца."""
+    expenses = load_expenses()
+    month_expenses = get_current_month_expenses(expenses)
+
+    if not month_expenses:
+        print("За текущий месяц расходов не найдено.")
+        return
+
+    category_totals = calculate_category_totals(month_expenses)
+    daily_totals = calculate_daily_totals(month_expenses)
+    month_total = sum(category_totals.values())
+    month_key = get_current_month_key()
+
+    sorted_categories = sorted(category_totals.items(), key=lambda item: item[1], reverse=True)
+    rows_html = []
+    for category, amount in sorted_categories:
+        percent = (amount / month_total) * 100 if month_total else 0
+        rows_html.append(
+            "<tr>"
+            f"<td>{html.escape(category)}</td>"
+            f"<td>{amount:.2f}</td>"
+            f"<td>{percent:.1f}%</td>"
+            "</tr>"
+        )
+
+    report_html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Отчёт по расходам за {month_key}</title>
+  <style>
+    body {{
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f5f7fb;
+      color: #1f2937;
+    }}
+    .container {{
+      max-width: 1100px;
+      margin: 0 auto;
+    }}
+    .card {{
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    }}
+    h1, h2 {{
+      margin-top: 0;
+    }}
+    .summary {{
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }}
+    .summary-item {{
+      background: #eef2ff;
+      border-radius: 12px;
+      padding: 14px 16px;
+      min-width: 180px;
+    }}
+    .summary-label {{
+      display: block;
+      font-size: 14px;
+      color: #4b5563;
+      margin-bottom: 6px;
+    }}
+    .summary-value {{
+      font-size: 28px;
+      font-weight: bold;
+      color: #111827;
+    }}
+    .chart {{
+      width: 100%;
+      height: auto;
+      overflow: visible;
+    }}
+    .legend-label, .axis-label, .point-label, .empty-label {{
+      fill: #374151;
+      font-size: 13px;
+    }}
+    .grid-line {{
+      stroke: #d1d5db;
+      stroke-width: 1;
+    }}
+    .axis-line {{
+      stroke: #6b7280;
+      stroke-width: 1.5;
+    }}
+    .line-path {{
+      fill: none;
+      stroke: #4f46e5;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }}
+    .line-point {{
+      fill: #4f46e5;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+    }}
+    th, td {{
+      padding: 10px 12px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }}
+    th {{
+      background: #f9fafb;
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Отчёт по расходам за {month_key}</h1>
+      <div class="summary">
+        <div class="summary-item">
+          <span class="summary-label">Общая сумма</span>
+          <span class="summary-value">{month_total:.2f}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Количество записей</span>
+          <span class="summary-value">{len(month_expenses)}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Категорий с расходами</span>
+          <span class="summary-value">{len(category_totals)}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Диаграмма по категориям</h2>
+      {build_pie_chart_svg(category_totals)}
+    </div>
+
+    <div class="card">
+      <h2>График расходов по дням</h2>
+      {build_line_chart_svg(daily_totals)}
+    </div>
+
+    <div class="card">
+      <h2>Таблица по категориям</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Категория</th>
+            <th>Сумма</th>
+            <th>Доля</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(rows_html)}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+    with open(REPORT_FILE, "w", encoding="utf-8") as file:
+        file.write(report_html)
+
+    print(f"Визуальный отчёт сформирован: {os.path.abspath(REPORT_FILE)}")
+
+
 def list_expenses():
     """Показывает расходы за текущий месяц, сгруппированные по датам."""
     expenses = load_expenses()
@@ -477,14 +830,7 @@ def show_stats():
         print("За текущий месяц расходов не найдено.")
         return
 
-    # Считаем сумму по категориям.
-    category_totals = {}
-    for expense in month_expenses:
-        category = expense.get("category", "Без категории")
-        amount = float(expense.get("amount", 0))
-        if category not in category_totals:
-            category_totals[category] = 0.0
-        category_totals[category] += amount
+    category_totals = calculate_category_totals(month_expenses)
 
     # Считаем общую сумму за месяц, чтобы показывать долю каждой категории.
     month_total = 0.0
@@ -666,6 +1012,7 @@ def print_help():
     print("  python main.py add")
     print("  python main.py list")
     print("  python main.py stats")
+    print("  python main.py charts")
     print("  python main.py limits set")
     print("  python main.py limits zero")
     print("  python main.py limits remove")
@@ -675,6 +1022,7 @@ def print_help():
     print("  python main.py expenses add")
     print("  python main.py expenses list")
     print("  python main.py expenses stats")
+    print("  python main.py expenses charts")
     print("  python main.py expenses limits set")
     print("  python main.py expenses limits zero")
     print("  python main.py expenses limits remove")
@@ -728,6 +1076,13 @@ def run_command(args):
             return False
         show_stats()
         return True
+    elif command == "charts":
+        if len(args) != 1:
+            print("Команда 'charts' не принимает дополнительных аргументов.")
+            print_help()
+            return False
+        generate_visual_report()
+        return True
     elif command == "limits":
         if len(args) != 2:
             print("Используйте: limits set | limits zero | limits remove | limits list")
@@ -775,7 +1130,7 @@ def run_interactive_mode():
     - принимает команды до выхода
     """
     print("Личный учёт расходов — интерактивный режим")
-    print("Введите одну из команд: add, list, stats, limits ..., categories ...")
+    print("Введите одну из команд: add, list, stats, charts, limits ..., categories ...")
     print("Дополнительно: help — показать подсказки, exit — выйти\n")
     print_help()
     print("")

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Отчёт по расходам за 2026-04</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f5f7fb;
+      color: #1f2937;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    }
+    h1, h2 {
+      margin-top: 0;
+    }
+    .summary {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .summary-item {
+      background: #eef2ff;
+      border-radius: 12px;
+      padding: 14px 16px;
+      min-width: 180px;
+    }
+    .summary-label {
+      display: block;
+      font-size: 14px;
+      color: #4b5563;
+      margin-bottom: 6px;
+    }
+    .summary-value {
+      font-size: 28px;
+      font-weight: bold;
+      color: #111827;
+    }
+    .chart {
+      width: 100%;
+      height: auto;
+      overflow: visible;
+    }
+    .legend-label, .axis-label, .point-label, .empty-label {
+      fill: #374151;
+      font-size: 13px;
+    }
+    .grid-line {
+      stroke: #d1d5db;
+      stroke-width: 1;
+    }
+    .axis-line {
+      stroke: #6b7280;
+      stroke-width: 1.5;
+    }
+    .line-path {
+      fill: none;
+      stroke: #4f46e5;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .line-point {
+      fill: #4f46e5;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }
+    th {
+      background: #f9fafb;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Отчёт по расходам за 2026-04</h1>
+      <div class="summary">
+        <div class="summary-item">
+          <span class="summary-label">Общая сумма</span>
+          <span class="summary-value">710.00</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Количество записей</span>
+          <span class="summary-value">3</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Категорий с расходами</span>
+          <span class="summary-value">3</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Диаграмма по категориям</h2>
+      <svg viewBox="0 0 860 360" class="chart" role="img" aria-label="Круговая диаграмма расходов по категориям"><path d="M 180 180 L 180.00 70.00 A 110 110 0 1 1 94.87 110.33 Z" fill="#4F46E5"></path><rect x="390" y="33" width="14" height="14" rx="3" fill="#4F46E5"></rect><text x="414" y="45" class="legend-label">Коммунальные услуги: 610.00 (85.9%)</text><path d="M 180 180 L 94.87 110.33 A 110 110 0 0 1 146.47 75.23 Z" fill="#0EA5E9"></path><rect x="390" y="61" width="14" height="14" rx="3" fill="#0EA5E9"></rect><text x="414" y="73" class="legend-label">Выпечка: 65.00 (9.2%)</text><path d="M 180 180 L 146.47 75.23 A 110 110 0 0 1 180.00 70.00 Z" fill="#10B981"></path><rect x="390" y="89" width="14" height="14" rx="3" fill="#10B981"></rect><text x="414" y="101" class="legend-label">Еда: 35.00 (4.9%)</text></svg>
+    </div>
+
+    <div class="card">
+      <h2>График расходов по дням</h2>
+      <svg viewBox="0 0 860 360" class="chart" role="img" aria-label="Линейный график расходов по дням"><line x1="70" y1="30.00" x2="830" y2="30.00" class="grid-line"></line><text x="58" y="34.00" text-anchor="end" class="axis-label">710</text><line x1="70" y1="85.00" x2="830" y2="85.00" class="grid-line"></line><text x="58" y="89.00" text-anchor="end" class="axis-label">568</text><line x1="70" y1="140.00" x2="830" y2="140.00" class="grid-line"></line><text x="58" y="144.00" text-anchor="end" class="axis-label">426</text><line x1="70" y1="195.00" x2="830" y2="195.00" class="grid-line"></line><text x="58" y="199.00" text-anchor="end" class="axis-label">284</text><line x1="70" y1="250.00" x2="830" y2="250.00" class="grid-line"></line><text x="58" y="254.00" text-anchor="end" class="axis-label">142</text><line x1="70" y1="305.00" x2="830" y2="305.00" class="grid-line"></line><text x="58" y="309.00" text-anchor="end" class="axis-label">0</text><line x1="70" y1="305" x2="830" y2="305" class="axis-line"></line><line x1="70" y1="30" x2="70" y2="305" class="axis-line"></line><polyline points="70.00,30.00" class="line-path"></polyline><circle cx="70.00" cy="30.00" r="4.5" class="line-point"></circle><text x="70.00" y="327" text-anchor="middle" class="axis-label">28</text><text x="70.00" y="18.00" text-anchor="middle" class="point-label">710</text><title>2026-04-28: 710.00</title></svg>
+    </div>
+
+    <div class="card">
+      <h2>Таблица по категориям</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Категория</th>
+            <th>Сумма</th>
+            <th>Доля</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Коммунальные услуги</td><td>610.00</td><td>85.9%</td></tr><tr><td>Выпечка</td><td>65.00</td><td>9.2%</td></tr><tr><td>Еда</td><td>35.00</td><td>4.9%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>
