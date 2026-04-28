@@ -3,7 +3,10 @@ import json
 import math
 import os
 import sys
+import webbrowser
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 
 # Имя файла для хранения расходов в формате JSON.
@@ -16,6 +19,8 @@ CATEGORIES_FILE = "categories.json"
 ITEM_CATEGORY_FILE = "item_categories.json"
 # Имя HTML-файла с визуальным отчётом.
 REPORT_FILE = "expense_report.html"
+# Имя HTML-файла для веб-интерфейса.
+WEB_UI_FILE = "web_ui.html"
 
 # Базовые категории, которые создаются по умолчанию.
 DEFAULT_CATEGORIES = [
@@ -197,6 +202,540 @@ def add_category_to_system(category):
     return True
 
 
+def build_state_payload():
+    """Собирает состояние приложения для веб-интерфейса."""
+    expenses = load_expenses()
+    categories = load_categories()
+    item_categories = load_item_categories()
+    limits_data = load_limits()
+    month_key = get_current_month_key()
+    month_limits = get_month_limits(month_key)
+    month_expenses = []
+    for index, expense in enumerate(expenses):
+        date_text = expense.get("date", "")
+        parsed = parse_date(date_text)
+        if parsed is None:
+            continue
+        if parsed.year == int(month_key[:4]) and parsed.month == int(month_key[5:7]):
+            month_expenses.append((index, expense))
+    month_expenses = sorted(month_expenses, key=lambda item: item[1].get("date", ""), reverse=True)
+    month_expense_values = [expense for _, expense in month_expenses]
+    category_totals = calculate_category_totals(month_expense_values)
+    daily_totals = calculate_daily_totals(month_expense_values)
+
+    month_total = 0.0
+    for amount in category_totals.values():
+        month_total += amount
+
+    month_expenses_payload = []
+    for index, expense in month_expenses:
+        month_expenses_payload.append(
+            {
+                "id": index,
+                "item": expense.get("item", "Без названия"),
+                "amount": float(expense.get("amount", 0)),
+                "category": expense.get("category", "Без категории"),
+                "date": expense.get("date", ""),
+                "comment": expense.get("comment", ""),
+            }
+        )
+
+    known_items_map = {}
+    for expense in expenses:
+        item_name = str(expense.get("item", "")).strip()
+        if not item_name:
+            continue
+        normalized_item = normalize_item_name(item_name)
+        if normalized_item not in known_items_map:
+            known_items_map[normalized_item] = {
+                "item": item_name,
+                "category": expense.get("category", "Без категории"),
+                "lastAmount": float(expense.get("amount", 0)),
+            }
+
+    for normalized_item, category in item_categories.items():
+        if normalized_item not in known_items_map:
+            known_items_map[normalized_item] = {
+                "item": normalized_item,
+                "category": category,
+                "lastAmount": 0.0,
+            }
+
+    known_items = sorted(
+        known_items_map.values(),
+        key=lambda item: item["item"].lower(),
+    )
+
+    sorted_categories = sorted(category_totals.items(), key=lambda item: item[1], reverse=True)
+    category_rows = []
+    for category, amount in sorted_categories:
+        percent = (amount / month_total) * 100 if month_total else 0
+        category_rows.append(
+            {
+                "category": category,
+                "amount": amount,
+                "percent": round(percent, 1),
+                "limit": float(month_limits.get(category, 0)),
+            }
+        )
+
+    return {
+        "currentMonth": month_key,
+        "summary": {
+            "monthTotal": month_total,
+            "entriesCount": len(month_expense_values),
+            "categoriesCount": len(category_totals),
+        },
+        "categories": categories,
+        "knownItems": known_items,
+        "limits": {
+            "default": limits_data["default"],
+            "monthly": month_limits,
+        },
+        "monthExpenses": month_expenses_payload,
+        "categoryRows": category_rows,
+        "charts": {
+            "pieSvg": build_pie_chart_svg(category_totals),
+            "lineSvg": build_line_chart_svg(daily_totals),
+        },
+    }
+
+
+def add_expense_record(item_name, amount, category, date_value, comment=""):
+    """Добавляет расход без интерактивного ввода."""
+    item_name = item_name.strip()
+    if not item_name:
+        raise ValueError("Наименование не может быть пустым.")
+
+    try:
+        amount_value = float(str(amount).replace(",", "."))
+    except ValueError as error:
+        raise ValueError("Сумма должна быть числом.") from error
+
+    if amount_value <= 0:
+        raise ValueError("Сумма должна быть больше нуля.")
+
+    normalized_category = normalize_category(category)
+    if not normalized_category:
+        raise ValueError("Категория не может быть пустой.")
+
+    parsed_date = parse_date(date_value)
+    if parsed_date is None:
+        raise ValueError("Дата должна быть в формате YYYY-MM-DD.")
+
+    add_category_to_system(normalized_category)
+
+    expenses = load_expenses()
+    item_categories = load_item_categories()
+    normalized_item = normalize_item_name(item_name)
+    item_categories[normalized_item] = normalized_category
+    save_item_categories(item_categories)
+
+    expense = {
+        "item": item_name,
+        "amount": amount_value,
+        "category": normalized_category,
+        "date": parsed_date.strftime("%Y-%m-%d"),
+        "comment": comment.strip(),
+    }
+    expenses.append(expense)
+    save_expenses(expenses)
+    return expense
+
+
+def update_expense_record(expense_id, item_name, amount, category, date_value, comment=""):
+    """Обновляет существующий расход по индексу в файле."""
+    expenses = load_expenses()
+    try:
+        expense_index = int(expense_id)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Некорректный идентификатор расхода.") from error
+
+    if expense_index < 0 or expense_index >= len(expenses):
+        raise ValueError("Расход для редактирования не найден.")
+
+    item_name = item_name.strip()
+    if not item_name:
+        raise ValueError("Наименование не может быть пустым.")
+
+    try:
+        amount_value = float(str(amount).replace(",", "."))
+    except ValueError as error:
+        raise ValueError("Сумма должна быть числом.") from error
+
+    if amount_value <= 0:
+        raise ValueError("Сумма должна быть больше нуля.")
+
+    normalized_category = normalize_category(category)
+    if not normalized_category:
+        raise ValueError("Категория не может быть пустой.")
+
+    parsed_date = parse_date(date_value)
+    if parsed_date is None:
+        raise ValueError("Дата должна быть в формате YYYY-MM-DD.")
+
+    add_category_to_system(normalized_category)
+
+    expenses[expense_index] = {
+        "item": item_name,
+        "amount": amount_value,
+        "category": normalized_category,
+        "date": parsed_date.strftime("%Y-%m-%d"),
+        "comment": comment.strip(),
+    }
+    save_expenses(expenses)
+
+    item_categories = load_item_categories()
+    item_categories[normalize_item_name(item_name)] = normalized_category
+    save_item_categories(item_categories)
+
+    return expenses[expense_index]
+
+
+def delete_expense_record(expense_id):
+    """Удаляет расход по индексу в файле."""
+    expenses = load_expenses()
+    try:
+        expense_index = int(expense_id)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Некорректный идентификатор расхода.") from error
+
+    if expense_index < 0 or expense_index >= len(expenses):
+        raise ValueError("Расход для удаления не найден.")
+
+    removed_expense = expenses.pop(expense_index)
+    save_expenses(expenses)
+    return removed_expense
+
+
+def rename_category_in_system(old_category, new_category):
+    """Переименовывает категорию и обновляет связанные данные."""
+    old_category = normalize_category(old_category)
+    new_category = normalize_category(new_category)
+
+    if not old_category or not new_category:
+        raise ValueError("Названия категорий не должны быть пустыми.")
+    if old_category == new_category:
+        raise ValueError("Новое название совпадает с текущим.")
+
+    categories = load_categories()
+    if old_category not in categories:
+        raise ValueError("Категория для переименования не найдена.")
+    if new_category in categories:
+        raise ValueError("Такая категория уже существует.")
+
+    updated_categories = []
+    for category in categories:
+        if category == old_category:
+            updated_categories.append(new_category)
+        else:
+            updated_categories.append(category)
+    save_categories(updated_categories)
+
+    expenses = load_expenses()
+    changed_expenses = 0
+    for expense in expenses:
+        if expense.get("category", "") == old_category:
+            expense["category"] = new_category
+            changed_expenses += 1
+    save_expenses(expenses)
+
+    item_categories = load_item_categories()
+    changed_items = 0
+    for item_name, category in list(item_categories.items()):
+        if category == old_category:
+            item_categories[item_name] = new_category
+            changed_items += 1
+    save_item_categories(item_categories)
+
+    limits_data = load_limits()
+    if old_category in limits_data["default"]:
+        limits_data["default"][new_category] = limits_data["default"].pop(old_category)
+    else:
+        limits_data["default"][new_category] = 0.0
+
+    for month_limits in limits_data["monthly"].values():
+        if old_category in month_limits:
+            month_limits[new_category] = month_limits.pop(old_category)
+        elif new_category not in month_limits:
+            month_limits[new_category] = 0.0
+    save_limits(limits_data)
+
+    return {
+        "changed_expenses": changed_expenses,
+        "changed_items": changed_items,
+    }
+
+
+def remove_category_from_system(category_to_remove, replacement_category):
+    """Удаляет категорию и переносит связанные данные в другую категорию."""
+    category_to_remove = normalize_category(category_to_remove)
+    replacement_category = normalize_category(replacement_category)
+
+    if not category_to_remove or not replacement_category:
+        raise ValueError("Категории не должны быть пустыми.")
+    if category_to_remove == replacement_category:
+        raise ValueError("Нельзя переносить категорию саму в себя.")
+
+    categories = load_categories()
+    if category_to_remove not in categories:
+        raise ValueError("Категория для удаления не найдена.")
+    if replacement_category not in categories:
+        raise ValueError("Категория для переноса не найдена.")
+    if len(categories) < 2:
+        raise ValueError("Нельзя удалить последнюю категорию.")
+
+    updated_categories = []
+    for category in categories:
+        if category != category_to_remove:
+            updated_categories.append(category)
+    save_categories(updated_categories)
+
+    expenses = load_expenses()
+    changed_expenses = 0
+    for expense in expenses:
+        if expense.get("category", "") == category_to_remove:
+            expense["category"] = replacement_category
+            changed_expenses += 1
+    save_expenses(expenses)
+
+    item_categories = load_item_categories()
+    changed_items = 0
+    for item_name, category in list(item_categories.items()):
+        if category == category_to_remove:
+            item_categories[item_name] = replacement_category
+            changed_items += 1
+    save_item_categories(item_categories)
+
+    limits_data = load_limits()
+    if category_to_remove in limits_data["default"]:
+        del limits_data["default"][category_to_remove]
+    if replacement_category not in limits_data["default"]:
+        limits_data["default"][replacement_category] = 0.0
+
+    for month_limits in limits_data["monthly"].values():
+        if category_to_remove in month_limits:
+            del month_limits[category_to_remove]
+        if replacement_category not in month_limits:
+            month_limits[replacement_category] = 0.0
+    save_limits(limits_data)
+
+    return {
+        "changed_expenses": changed_expenses,
+        "changed_items": changed_items,
+    }
+
+
+def set_limit_value(scope, category, limit_amount):
+    """Устанавливает лимит категории без интерактивного ввода."""
+    if scope not in ("default", "month"):
+        raise ValueError("scope должен быть 'default' или 'month'.")
+
+    category = normalize_category(category)
+    if not category:
+        raise ValueError("Категория не может быть пустой.")
+
+    categories = load_categories()
+    if category not in categories:
+        raise ValueError("Такой категории нет. Сначала добавьте её в список.")
+
+    try:
+        amount_value = float(str(limit_amount).replace(",", "."))
+    except ValueError as error:
+        raise ValueError("Лимит должен быть числом.") from error
+
+    if amount_value < 0:
+        raise ValueError("Лимит не может быть отрицательным.")
+
+    limits_data = load_limits()
+    if scope == "default":
+        limits_data["default"][category] = amount_value
+    else:
+        month_key = get_current_month_key()
+        month_limits = get_month_limits(month_key)
+        month_limits[category] = amount_value
+        limits_data = load_limits()
+        limits_data["monthly"][month_key] = month_limits
+    save_limits(limits_data)
+
+
+def zero_limit_value(scope, category):
+    """Обнуляет лимит категории без интерактивного ввода."""
+    set_limit_value(scope, category, 0)
+
+
+def remove_limit_value(scope, category):
+    """Удаляет лимит категории без интерактивного ввода."""
+    if scope not in ("default", "month"):
+        raise ValueError("scope должен быть 'default' или 'month'.")
+
+    category = normalize_category(category)
+    if not category:
+        raise ValueError("Категория не может быть пустой.")
+
+    limits_data = load_limits()
+    if scope == "default":
+        if category in limits_data["default"]:
+            del limits_data["default"][category]
+            save_limits(limits_data)
+        else:
+            raise ValueError("Для этой категории нет дефолтного лимита.")
+    else:
+        month_key = get_current_month_key()
+        month_limits = get_month_limits(month_key)
+        if category in month_limits:
+            del month_limits[category]
+            limits_data = load_limits()
+            limits_data["monthly"][month_key] = month_limits
+            save_limits(limits_data)
+        else:
+            raise ValueError("Для этой категории нет месячного лимита.")
+
+
+def run_web_interface(host="127.0.0.1", port=8000):
+    """Запускает локальный веб-интерфейс приложения."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    web_ui_path = os.path.join(base_dir, WEB_UI_FILE)
+
+    if not os.path.exists(web_ui_path):
+        print(f"Файл веб-интерфейса не найден: {web_ui_path}")
+        return
+
+    class ExpenseWebHandler(BaseHTTPRequestHandler):
+        def _send_json(self, payload, status=200):
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _send_html_file(self, file_path):
+            with open(file_path, "rb") as file:
+                body = file.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _read_json_body(self):
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0:
+                return {}
+            raw_body = self.rfile.read(content_length).decode("utf-8")
+            if not raw_body.strip():
+                return {}
+            return json.loads(raw_body)
+
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            if parsed.path in ("/", "/index.html"):
+                self._send_html_file(web_ui_path)
+                return
+            if parsed.path == "/api/state":
+                self._send_json({"ok": True, "data": build_state_payload()})
+                return
+            self._send_json({"ok": False, "error": "Маршрут не найден."}, status=404)
+
+        def do_POST(self):
+            parsed = urlparse(self.path)
+            try:
+                payload = self._read_json_body()
+                if parsed.path == "/api/expenses":
+                    expense = add_expense_record(
+                        payload.get("item", ""),
+                        payload.get("amount", 0),
+                        payload.get("category", ""),
+                        payload.get("date", ""),
+                        payload.get("comment", ""),
+                    )
+                    self._send_json({"ok": True, "expense": expense, "data": build_state_payload()})
+                    return
+                if parsed.path == "/api/expenses/update":
+                    expense = update_expense_record(
+                        payload.get("id"),
+                        payload.get("item", ""),
+                        payload.get("amount", 0),
+                        payload.get("category", ""),
+                        payload.get("date", ""),
+                        payload.get("comment", ""),
+                    )
+                    self._send_json({"ok": True, "expense": expense, "data": build_state_payload()})
+                    return
+                if parsed.path == "/api/expenses/delete":
+                    removed_expense = delete_expense_record(payload.get("id"))
+                    self._send_json({"ok": True, "expense": removed_expense, "data": build_state_payload()})
+                    return
+                if parsed.path == "/api/categories/add":
+                    category = normalize_category(payload.get("name", ""))
+                    if not category:
+                        raise ValueError("Категория не может быть пустой.")
+                    categories = load_categories()
+                    if category in categories:
+                        raise ValueError("Такая категория уже существует.")
+                    add_category_to_system(category)
+                    self._send_json({"ok": True, "data": build_state_payload()})
+                    return
+                if parsed.path == "/api/categories/rename":
+                    result = rename_category_in_system(
+                        payload.get("oldCategory", ""),
+                        payload.get("newCategory", ""),
+                    )
+                    self._send_json({"ok": True, "result": result, "data": build_state_payload()})
+                    return
+                if parsed.path == "/api/categories/remove":
+                    result = remove_category_from_system(
+                        payload.get("category", ""),
+                        payload.get("replacementCategory", ""),
+                    )
+                    self._send_json({"ok": True, "result": result, "data": build_state_payload()})
+                    return
+                if parsed.path == "/api/limits/set":
+                    set_limit_value(
+                        payload.get("scope", ""),
+                        payload.get("category", ""),
+                        payload.get("amount", 0),
+                    )
+                    self._send_json({"ok": True, "data": build_state_payload()})
+                    return
+                if parsed.path == "/api/limits/zero":
+                    zero_limit_value(payload.get("scope", ""), payload.get("category", ""))
+                    self._send_json({"ok": True, "data": build_state_payload()})
+                    return
+                if parsed.path == "/api/limits/remove":
+                    remove_limit_value(payload.get("scope", ""), payload.get("category", ""))
+                    self._send_json({"ok": True, "data": build_state_payload()})
+                    return
+                self._send_json({"ok": False, "error": "Маршрут не найден."}, status=404)
+            except ValueError as error:
+                self._send_json({"ok": False, "error": str(error)}, status=400)
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "Некорректный JSON в запросе."}, status=400)
+            except Exception as error:
+                self._send_json({"ok": False, "error": f"Внутренняя ошибка: {error}"}, status=500)
+
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer((host, port), ExpenseWebHandler)
+    url = f"http://{host}:{port}"
+    print(f"Веб-интерфейс запущен: {url}")
+    print("Для остановки нажмите Ctrl+C.")
+
+    try:
+        webbrowser.open(url)
+    except Exception:
+        print("Не удалось автоматически открыть браузер.")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nВеб-интерфейс остановлен.")
+    finally:
+        server.server_close()
+
+
 def get_current_year_month():
     """Возвращает текущий год и месяц как кортеж (год, месяц)."""
     now = datetime.now()
@@ -352,10 +891,13 @@ def add_expense():
         print(f"  Категория: {category}")
         print(f"  Дата: {date_value}")
         print(f"  Комментарий: {comment if comment else '(пусто)'}")
-        print("Действия: save | edit item | edit amount | edit category | edit date | edit comment | cancel")
+        print(
+            "Действия: Enter/save | edit item | edit amount | edit category | "
+            "edit date | edit comment | cancel"
+        )
 
         action = input("Введите действие: ").strip().lower()
-        if action == "save":
+        if action in ("", "save"):
             break
         if action == "cancel":
             print("Добавление записи отменено.")
@@ -783,7 +1325,14 @@ def generate_visual_report():
     with open(REPORT_FILE, "w", encoding="utf-8") as file:
         file.write(report_html)
 
-    print(f"Визуальный отчёт сформирован: {os.path.abspath(REPORT_FILE)}")
+    report_path = os.path.abspath(REPORT_FILE)
+    print(f"Визуальный отчёт сформирован: {report_path}")
+
+    try:
+        webbrowser.open(f"file://{report_path}")
+        print("Отчёт открыт в браузере.")
+    except Exception:
+        print("Не удалось автоматически открыть отчёт в браузере.")
 
 
 def list_expenses():
@@ -1006,6 +1555,97 @@ def add_category():
     print(f"Категория '{normalized}' успешно добавлена.")
 
 
+def choose_existing_category(prompt_text, exclude_category=None):
+    """Просит ввести существующую категорию, при необходимости исключая одну из них."""
+    categories = load_categories()
+    available_categories = []
+    for category in categories:
+        if category != exclude_category:
+            available_categories.append(category)
+
+    if not available_categories:
+        print("Нет доступных категорий для выбора.")
+        return None
+
+    print("Категории:")
+    for category in available_categories:
+        print(f"- {category}")
+
+    while True:
+        category = normalize_category(input(prompt_text).strip())
+        if not category:
+            print("Категория не может быть пустой.")
+            continue
+        if category not in available_categories:
+            print("Такой категории нет в списке.")
+            continue
+        return category
+
+
+def rename_category():
+    """Переименовывает категорию и обновляет связанные данные."""
+    old_category = choose_existing_category("Введите категорию для переименования: ")
+    if not old_category:
+        return
+
+    new_name = input("Введите новое название категории: ").strip()
+    new_category = normalize_category(new_name)
+    if not new_category:
+        print("Новое название категории не может быть пустым.")
+        return
+
+    try:
+        result = rename_category_in_system(old_category, new_category)
+    except ValueError as error:
+        print(error)
+        return
+
+    print(
+        f"Категория '{old_category}' переименована в '{new_category}'. "
+        f"Обновлено записей расходов: {result['changed_expenses']}, "
+        f"автокатегорий: {result['changed_items']}."
+    )
+
+
+def remove_category():
+    """Удаляет категорию с переносом связанных записей в другую категорию."""
+    categories = load_categories()
+    if len(categories) < 2:
+        print("Нельзя удалить последнюю категорию в списке.")
+        return
+
+    category_to_remove = choose_existing_category("Введите категорию для удаления: ")
+    if not category_to_remove:
+        return
+
+    replacement_category = choose_existing_category(
+        f"Введите категорию для переноса данных вместо '{category_to_remove}': ",
+        exclude_category=category_to_remove,
+    )
+    if not replacement_category:
+        return
+
+    confirm = input(
+        f"Подтвердите удаление категории '{category_to_remove}' "
+        f"с переносом в '{replacement_category}' (yes/no): "
+    ).strip().lower()
+    if confirm not in ("yes", "y", "да"):
+        print("Удаление категории отменено.")
+        return
+
+    try:
+        result = remove_category_from_system(category_to_remove, replacement_category)
+    except ValueError as error:
+        print(error)
+        return
+
+    print(
+        f"Категория '{category_to_remove}' удалена. "
+        f"Перенесено записей расходов: {result['changed_expenses']}, "
+        f"автокатегорий: {result['changed_items']}."
+    )
+
+
 def print_help():
     """Печатает подсказку по запуску программы."""
     print("Доступные команды:")
@@ -1013,22 +1653,28 @@ def print_help():
     print("  python main.py list")
     print("  python main.py stats")
     print("  python main.py charts")
+    print("  python main.py web")
     print("  python main.py limits set")
     print("  python main.py limits zero")
     print("  python main.py limits remove")
     print("  python main.py limits list")
     print("  python main.py categories list")
     print("  python main.py categories add")
+    print("  python main.py categories rename")
+    print("  python main.py categories remove")
     print("  python main.py expenses add")
     print("  python main.py expenses list")
     print("  python main.py expenses stats")
     print("  python main.py expenses charts")
+    print("  python main.py expenses web")
     print("  python main.py expenses limits set")
     print("  python main.py expenses limits zero")
     print("  python main.py expenses limits remove")
     print("  python main.py expenses limits list")
     print("  python main.py expenses categories list")
     print("  python main.py expenses categories add")
+    print("  python main.py expenses categories rename")
+    print("  python main.py expenses categories remove")
 
 
 def get_args_from_argv(argv):
@@ -1083,6 +1729,13 @@ def run_command(args):
             return False
         generate_visual_report()
         return True
+    elif command == "web":
+        if len(args) != 1:
+            print("Команда 'web' не принимает дополнительных аргументов.")
+            print_help()
+            return False
+        run_web_interface()
+        return True
     elif command == "limits":
         if len(args) != 2:
             print("Используйте: limits set | limits zero | limits remove | limits list")
@@ -1104,7 +1757,7 @@ def run_command(args):
         return True
     elif command == "categories":
         if len(args) != 2:
-            print("Используйте: categories list или categories add")
+            print("Используйте: categories list | categories add | categories rename | categories remove")
             print_help()
             return False
         subcommand = args[1]
@@ -1112,6 +1765,10 @@ def run_command(args):
             list_categories()
         elif subcommand == "add":
             add_category()
+        elif subcommand == "rename":
+            rename_category()
+        elif subcommand == "remove":
+            remove_category()
         else:
             print(f"Неизвестная подкоманда categories: {subcommand}")
             print_help()
@@ -1130,7 +1787,7 @@ def run_interactive_mode():
     - принимает команды до выхода
     """
     print("Личный учёт расходов — интерактивный режим")
-    print("Введите одну из команд: add, list, stats, charts, limits ..., categories ...")
+    print("Введите одну из команд: add, list, stats, charts, web, limits ..., categories ...")
     print("Дополнительно: help — показать подсказки, exit — выйти\n")
     print_help()
     print("")

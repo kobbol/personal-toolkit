@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Личный учёт расходов</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --primary: #4f46e5;
+      --primary-dark: #4338ca;
+      --danger: #dc2626;
+      --success: #047857;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 20px;
+    }
+
+    .card {
+      grid-column: span 12;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+    }
+
+    .card h2 {
+      margin-top: 0;
+      margin-bottom: 16px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .stat {
+      padding: 16px;
+      border-radius: 14px;
+      background: #eef2ff;
+    }
+
+    .stat-label {
+      display: block;
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: bold;
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    input, select, textarea, button {
+      font: inherit;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: #fff;
+      color: var(--text);
+    }
+
+    textarea {
+      min-height: 88px;
+      resize: vertical;
+    }
+
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      background: var(--primary);
+      color: #fff;
+      transition: background 0.15s ease;
+    }
+
+    button:hover {
+      background: var(--primary-dark);
+    }
+
+    button.secondary {
+      background: #e5e7eb;
+      color: #111827;
+    }
+
+    button.secondary:hover {
+      background: #d1d5db;
+    }
+
+    button.danger {
+      background: var(--danger);
+    }
+
+    button.danger:hover {
+      background: #b91c1c;
+    }
+
+    .section-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .message {
+      margin-bottom: 16px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      display: none;
+    }
+
+    .message.visible {
+      display: block;
+    }
+
+    .message.success {
+      background: #ecfdf5;
+      color: var(--success);
+    }
+
+    .message.error {
+      background: #fef2f2;
+      color: var(--danger);
+    }
+
+    .table-wrapper {
+      overflow-x: auto;
+    }
+
+    .expenses-table-wrapper {
+      max-height: 520px;
+      overflow-y: auto;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: bold;
+      background: #f9fafb;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .category-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .chip {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #3730a3;
+      font-size: 14px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .chart-shell {
+      min-height: 260px;
+      overflow: auto;
+    }
+
+    .chart-shell svg {
+      width: 100%;
+      height: auto;
+    }
+
+    @media (min-width: 900px) {
+      .span-4 {
+        grid-column: span 4;
+      }
+
+      .span-5 {
+        grid-column: span 5;
+      }
+
+      .span-6 {
+        grid-column: span 6;
+      }
+
+      .span-7 {
+        grid-column: span 7;
+      }
+
+      .span-8 {
+        grid-column: span 8;
+      }
+    }
+
+    @media (max-width: 899px) {
+      .stats-grid,
+      .form-grid,
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="hero">
+      <div>
+        <h1>Личный учёт расходов</h1>
+        <p>Работа с расходами, лимитами, категориями и статистикой на одной странице.</p>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="refreshButton" type="button">Обновить данные</button>
+      </div>
+    </div>
+
+    <div id="message" class="message"></div>
+
+    <div class="grid">
+      <section class="card span-12">
+        <h2>Сводка за месяц</h2>
+        <div class="stats-grid">
+          <div class="stat">
+            <span class="stat-label">Текущий месяц</span>
+            <span class="stat-value" id="summaryMonth">-</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Общая сумма</span>
+            <span class="stat-value" id="summaryTotal">0.00</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Количество записей</span>
+            <span class="stat-value" id="summaryCount">0</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card span-4">
+        <h2 id="expenseFormTitle">Добавить трату</h2>
+        <form id="expenseForm">
+          <input id="expenseEditId" name="id" type="hidden">
+          <div class="form-grid">
+            <label>
+              Товар / услуга
+              <input id="expenseItem" name="item" list="knownItemsList" autocomplete="off" required>
+              <datalist id="knownItemsList"></datalist>
+            </label>
+            <label>
+              Сумма
+              <input id="expenseAmount" name="amount" type="number" min="0.01" step="0.01" required>
+            </label>
+            <label>
+              Категория
+              <select id="expenseCategory" name="category" required></select>
+            </label>
+            <label>
+              Дата
+              <input id="expenseDate" name="date" type="date" required>
+            </label>
+          </div>
+          <label>
+            Комментарий
+            <textarea id="expenseComment" name="comment"></textarea>
+          </label>
+          <div class="section-actions">
+            <button id="expenseSubmitButton" type="submit">Сохранить трату</button>
+            <button class="secondary" id="expenseCancelEditButton" type="button" style="display: none;">Отменить редактирование</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card span-8">
+        <h2>Расходы текущего месяца</h2>
+        <div class="form-grid" style="margin-bottom: 16px;">
+          <label>
+            Поиск
+            <input id="expenseSearch" type="text" placeholder="Товар или комментарий">
+          </label>
+          <label>
+            Категория
+            <select id="expenseFilterCategory">
+              <option value="">Все категории</option>
+            </select>
+          </label>
+          <label>
+            Дата с
+            <input id="expenseFilterDateFrom" type="date">
+          </label>
+          <label>
+            Дата по
+            <input id="expenseFilterDateTo" type="date">
+          </label>
+        </div>
+        <div class="section-actions" style="margin-bottom: 16px;">
+          <button class="secondary" id="resetExpenseFiltersButton" type="button">Сбросить фильтры</button>
+        </div>
+        <div class="table-wrapper expenses-table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Позиция</th>
+                <th>Категория</th>
+                <th>Сумма</th>
+                <th>Комментарий</th>
+                <th>Действие</th>
+              </tr>
+            </thead>
+            <tbody id="expensesTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card span-6">
+        <h2>Диаграмма по категориям</h2>
+        <div id="pieChart" class="chart-shell"></div>
+      </section>
+
+      <section class="card span-6">
+        <h2>График расходов по дням</h2>
+        <div id="lineChart" class="chart-shell"></div>
+      </section>
+
+      <section class="card span-7">
+        <h2>Статистика по категориям</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Категория</th>
+                <th>Сумма</th>
+                <th>Доля</th>
+                <th>Лимит месяца</th>
+              </tr>
+            </thead>
+            <tbody id="statsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card span-5">
+        <h2>Лимиты</h2>
+        <form id="limitForm">
+          <div class="form-grid">
+            <label>
+              Область
+              <select id="limitScope" name="scope">
+                <option value="default">По умолчанию</option>
+                <option value="month">Текущий месяц</option>
+              </select>
+            </label>
+            <label>
+              Категория
+              <select id="limitCategory" name="category"></select>
+            </label>
+            <label>
+              Значение лимита
+              <input id="limitAmount" name="amount" type="number" min="0" step="0.01">
+            </label>
+          </div>
+          <div class="section-actions">
+            <button type="submit">Установить лимит</button>
+            <button class="secondary" type="button" id="zeroLimitButton">Обнулить</button>
+            <button class="danger" type="button" id="removeLimitButton">Удалить</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card span-12">
+        <h2>Категории</h2>
+        <div class="two-col">
+          <form id="addCategoryForm">
+            <label>
+              Новая категория
+              <input id="newCategoryName" name="name" required>
+            </label>
+            <button type="submit">Добавить категорию</button>
+          </form>
+
+          <form id="renameCategoryForm">
+            <div class="form-grid">
+              <label>
+                Текущая категория
+                <select id="renameOldCategory" name="oldCategory"></select>
+              </label>
+              <label>
+                Новое название
+                <input id="renameNewCategory" name="newCategory" required>
+              </label>
+            </div>
+            <button type="submit">Переименовать</button>
+          </form>
+        </div>
+
+        <div class="two-col" style="margin-top: 16px;">
+          <form id="removeCategoryForm">
+            <div class="form-grid">
+              <label>
+                Удаляемая категория
+                <select id="removeCategoryName" name="category"></select>
+              </label>
+              <label>
+                Перенести данные в
+                <select id="replacementCategory" name="replacementCategory"></select>
+              </label>
+            </div>
+            <button class="danger" type="submit">Удалить категорию</button>
+          </form>
+
+          <div>
+            <div class="muted">Текущий список категорий</div>
+            <div id="categoryList" class="category-list"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const state = { data: null };
+
+    const messageEl = document.getElementById("message");
+    const refreshButton = document.getElementById("refreshButton");
+
+    const expenseForm = document.getElementById("expenseForm");
+    const expenseEditId = document.getElementById("expenseEditId");
+    const expenseItem = document.getElementById("expenseItem");
+    const expenseAmount = document.getElementById("expenseAmount");
+    const expenseCategory = document.getElementById("expenseCategory");
+    const expenseDate = document.getElementById("expenseDate");
+    const expenseComment = document.getElementById("expenseComment");
+    const expenseFormTitle = document.getElementById("expenseFormTitle");
+    const expenseSubmitButton = document.getElementById("expenseSubmitButton");
+    const expenseCancelEditButton = document.getElementById("expenseCancelEditButton");
+    const expenseSearch = document.getElementById("expenseSearch");
+    const expenseFilterCategory = document.getElementById("expenseFilterCategory");
+    const expenseFilterDateFrom = document.getElementById("expenseFilterDateFrom");
+    const expenseFilterDateTo = document.getElementById("expenseFilterDateTo");
+    const resetExpenseFiltersButton = document.getElementById("resetExpenseFiltersButton");
+
+    const limitForm = document.getElementById("limitForm");
+    const limitCategory = document.getElementById("limitCategory");
+    const zeroLimitButton = document.getElementById("zeroLimitButton");
+    const removeLimitButton = document.getElementById("removeLimitButton");
+
+    const addCategoryForm = document.getElementById("addCategoryForm");
+    const renameCategoryForm = document.getElementById("renameCategoryForm");
+    const removeCategoryForm = document.getElementById("removeCategoryForm");
+
+    function showMessage(text, type = "success") {
+      messageEl.textContent = text;
+      messageEl.className = `message visible ${type}`;
+    }
+
+    function clearMessage() {
+      messageEl.className = "message";
+      messageEl.textContent = "";
+    }
+
+    function formatMoney(value) {
+      return Number(value || 0).toFixed(2);
+    }
+
+    function getTodayIsoDate() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function fillSelect(select, options, placeholder = null) {
+      select.innerHTML = "";
+      if (placeholder) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = placeholder;
+        select.appendChild(option);
+      }
+      for (const value of options) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+      }
+    }
+
+    function renderState(data) {
+      state.data = data;
+
+      document.getElementById("summaryMonth").textContent = data.currentMonth;
+      document.getElementById("summaryTotal").textContent = formatMoney(data.summary.monthTotal);
+      document.getElementById("summaryCount").textContent = String(data.summary.entriesCount);
+
+      fillSelect(expenseCategory, data.categories);
+      fillSelect(expenseFilterCategory, data.categories, "Все категории");
+      fillSelect(limitCategory, data.categories);
+      fillSelect(document.getElementById("renameOldCategory"), data.categories);
+      fillSelect(document.getElementById("removeCategoryName"), data.categories);
+      updateReplacementCategoryOptions();
+
+      const today = getTodayIsoDate();
+      if (!expenseDate.value) {
+        expenseDate.value = today;
+      }
+
+      const knownItemsList = document.getElementById("knownItemsList");
+      knownItemsList.innerHTML = "";
+      for (const item of data.knownItems || []) {
+        const option = document.createElement("option");
+        option.value = item.item;
+        const details = [];
+        if (item.category) {
+          details.push(item.category);
+        }
+        if (Number(item.lastAmount || 0) > 0) {
+          details.push(`${formatMoney(item.lastAmount)}`);
+        }
+        option.label = details.length > 0 ? `${item.item} (${details.join(", ")})` : item.item;
+        knownItemsList.appendChild(option);
+      }
+
+      document.getElementById("pieChart").innerHTML = data.charts.pieSvg;
+      document.getElementById("lineChart").innerHTML = data.charts.lineSvg;
+
+      renderExpensesTable();
+
+      const statsTableBody = document.getElementById("statsTableBody");
+      statsTableBody.innerHTML = "";
+      if (data.categoryRows.length === 0) {
+        statsTableBody.innerHTML = '<tr><td colspan="4" class="muted">Нет данных для статистики.</td></tr>';
+      } else {
+        for (const rowData of data.categoryRows) {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${rowData.category}</td>
+            <td>${formatMoney(rowData.amount)}</td>
+            <td>${Number(rowData.percent).toFixed(1)}%</td>
+            <td>${formatMoney(rowData.limit)}</td>
+          `;
+          statsTableBody.appendChild(row);
+        }
+      }
+
+      const categoryList = document.getElementById("categoryList");
+      categoryList.innerHTML = "";
+      for (const category of data.categories) {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = category;
+        categoryList.appendChild(chip);
+      }
+    }
+
+    function getFilteredExpenses() {
+      if (!state.data) {
+        return [];
+      }
+
+      const searchValue = expenseSearch.value.trim().toLowerCase();
+      const categoryValue = expenseFilterCategory.value;
+      const dateFromValue = expenseFilterDateFrom.value;
+      const dateToValue = expenseFilterDateTo.value;
+
+      return (state.data.monthExpenses || []).filter((expense) => {
+        const expenseItemText = String(expense.item || "").toLowerCase();
+        const expenseCommentText = String(expense.comment || "").toLowerCase();
+        const matchesSearch = !searchValue
+          || expenseItemText.includes(searchValue)
+          || expenseCommentText.includes(searchValue);
+        const matchesCategory = !categoryValue || expense.category === categoryValue;
+        const matchesDateFrom = !dateFromValue || String(expense.date || "") >= dateFromValue;
+        const matchesDateTo = !dateToValue || String(expense.date || "") <= dateToValue;
+        return matchesSearch && matchesCategory && matchesDateFrom && matchesDateTo;
+      });
+    }
+
+    function renderExpensesTable() {
+      const expensesTableBody = document.getElementById("expensesTableBody");
+      expensesTableBody.innerHTML = "";
+      const filteredExpenses = getFilteredExpenses();
+
+      if (filteredExpenses.length === 0) {
+        const hasSourceExpenses = state.data && state.data.monthExpenses && state.data.monthExpenses.length > 0;
+        expensesTableBody.innerHTML = hasSourceExpenses
+          ? '<tr><td colspan="6" class="muted">По заданным фильтрам ничего не найдено.</td></tr>'
+          : '<tr><td colspan="6" class="muted">За текущий месяц расходов пока нет.</td></tr>';
+        return;
+      }
+
+      for (const expense of filteredExpenses) {
+        const row = document.createElement("tr");
+        const safeComment = expense.comment || "";
+        row.innerHTML = `
+          <td>${expense.date || ""}</td>
+          <td>${expense.item || ""}</td>
+          <td>${expense.category || ""}</td>
+          <td>${formatMoney(expense.amount)}</td>
+          <td>${safeComment}</td>
+          <td>
+            <div class="section-actions">
+              <button type="button" class="secondary edit-expense-button">Редактировать</button>
+              <button type="button" class="secondary repeat-expense-button">Повторить</button>
+              <button type="button" class="danger delete-expense-button">Удалить</button>
+            </div>
+          </td>
+        `;
+        const editButton = row.querySelector(".edit-expense-button");
+        const repeatButton = row.querySelector(".repeat-expense-button");
+        const deleteButton = row.querySelector(".delete-expense-button");
+        editButton.addEventListener("click", () => {
+          startExpenseEditing(expense);
+        });
+        repeatButton.addEventListener("click", () => {
+          fillExpenseFormFromExisting(expense);
+        });
+        deleteButton.addEventListener("click", async () => {
+          await deleteExpense(expense);
+        });
+        expensesTableBody.appendChild(row);
+      }
+    }
+
+    function updateReplacementCategoryOptions() {
+      if (!state.data) {
+        return;
+      }
+      const removeCategoryName = document.getElementById("removeCategoryName").value;
+      const replacementCategory = document.getElementById("replacementCategory");
+      const options = state.data.categories.filter((category) => category !== removeCategoryName);
+      fillSelect(replacementCategory, options);
+    }
+
+    function syncKnownItemDetails() {
+      if (!state.data) {
+        return;
+      }
+      const itemValue = expenseItem.value.trim().toLowerCase();
+      if (!itemValue) {
+        return;
+      }
+      const matchedItem = (state.data.knownItems || []).find(
+        (item) => item.item.trim().toLowerCase() === itemValue
+      );
+      if (matchedItem && matchedItem.category) {
+        expenseCategory.value = matchedItem.category;
+      }
+      if (matchedItem && Number(matchedItem.lastAmount || 0) > 0 && !expenseAmount.value) {
+        expenseAmount.value = Number(matchedItem.lastAmount).toFixed(2);
+      }
+    }
+
+    function fillExpenseFormFromExisting(expense) {
+      clearExpenseEditing();
+      expenseItem.value = expense.item || "";
+      expenseAmount.value = Number(expense.amount || 0).toFixed(2);
+      expenseCategory.value = expense.category || "";
+      expenseDate.value = getTodayIsoDate();
+      expenseComment.value = expense.comment || "";
+      expenseItem.focus();
+      showMessage(`Форма заполнена по покупке "${expense.item}".`);
+    }
+
+    function startExpenseEditing(expense) {
+      expenseEditId.value = String(expense.id);
+      expenseItem.value = expense.item || "";
+      expenseAmount.value = Number(expense.amount || 0).toFixed(2);
+      expenseCategory.value = expense.category || "";
+      expenseDate.value = expense.date || getTodayIsoDate();
+      expenseComment.value = expense.comment || "";
+      expenseFormTitle.textContent = "Редактировать трату";
+      expenseSubmitButton.textContent = "Сохранить изменения";
+      expenseCancelEditButton.style.display = "inline-block";
+      expenseItem.focus();
+      showMessage(`Редактирование покупки "${expense.item}".`);
+    }
+
+    function clearExpenseEditing() {
+      expenseEditId.value = "";
+      expenseForm.reset();
+      expenseFormTitle.textContent = "Добавить трату";
+      expenseSubmitButton.textContent = "Сохранить трату";
+      expenseCancelEditButton.style.display = "none";
+      expenseDate.value = getTodayIsoDate();
+    }
+
+    async function deleteExpense(expense) {
+      clearMessage();
+      if (!window.confirm(`Удалить трату "${expense.item}" на сумму ${formatMoney(expense.amount)}?`)) {
+        return;
+      }
+      try {
+        await apiRequest("/api/expenses/delete", "POST", { id: expense.id });
+        if (expenseEditId.value === String(expense.id)) {
+          clearExpenseEditing();
+        }
+        await loadState();
+        showMessage("Трата удалена.");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    async function apiRequest(url, method = "GET", payload = null) {
+      const options = { method, headers: {} };
+      if (payload !== null) {
+        options.headers["Content-Type"] = "application/json";
+        options.body = JSON.stringify(payload);
+      }
+
+      const response = await fetch(url, options);
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Не удалось выполнить запрос.");
+      }
+      return result;
+    }
+
+    async function loadState() {
+      const result = await apiRequest("/api/state");
+      renderState(result.data);
+    }
+
+    expenseForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearMessage();
+      try {
+        const isEditing = Boolean(expenseEditId.value);
+        const payload = {
+          id: expenseEditId.value,
+          item: document.getElementById("expenseItem").value,
+          amount: document.getElementById("expenseAmount").value,
+          category: document.getElementById("expenseCategory").value,
+          date: document.getElementById("expenseDate").value,
+          comment: document.getElementById("expenseComment").value,
+        };
+        const url = isEditing ? "/api/expenses/update" : "/api/expenses";
+        await apiRequest(url, "POST", payload);
+        clearExpenseEditing();
+        await loadState();
+        showMessage(isEditing ? "Трата обновлена." : "Трата сохранена.");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    });
+
+    limitForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearMessage();
+      try {
+        await apiRequest("/api/limits/set", "POST", {
+          scope: document.getElementById("limitScope").value,
+          category: document.getElementById("limitCategory").value,
+          amount: document.getElementById("limitAmount").value,
+        });
+        await loadState();
+        showMessage("Лимит обновлён.");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    });
+
+    zeroLimitButton.addEventListener("click", async () => {
+      clearMessage();
+      try {
+        await apiRequest("/api/limits/zero", "POST", {
+          scope: document.getElementById("limitScope").value,
+          category: document.getElementById("limitCategory").value,
+        });
+        await loadState();
+        showMessage("Лимит обнулён.");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    });
+
+    removeLimitButton.addEventListener("click", async () => {
+      clearMessage();
+      try {
+        await apiRequest("/api/limits/remove", "POST", {
+          scope: document.getElementById("limitScope").value,
+          category: document.getElementById("limitCategory").value,
+        });
+        await loadState();
+        showMessage("Лимит удалён.");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    });
+
+    addCategoryForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearMessage();
+      try {
+        await apiRequest("/api/categories/add", "POST", {
+          name: document.getElementById("newCategoryName").value,
+        });
+        addCategoryForm.reset();
+        await loadState();
+        showMessage("Категория добавлена.");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    });
+
+    renameCategoryForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearMessage();
+      try {
+        await apiRequest("/api/categories/rename", "POST", {
+          oldCategory: document.getElementById("renameOldCategory").value,
+          newCategory: document.getElementById("renameNewCategory").value,
+        });
+        renameCategoryForm.reset();
+        await loadState();
+        showMessage("Категория переименована.");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    });
+
+    removeCategoryForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearMessage();
+      const category = document.getElementById("removeCategoryName").value;
+      const replacementCategory = document.getElementById("replacementCategory").value;
+      if (!window.confirm(`Удалить категорию "${category}" и перенести данные в "${replacementCategory}"?`)) {
+        return;
+      }
+
+      try {
+        await apiRequest("/api/categories/remove", "POST", {
+          category,
+          replacementCategory,
+        });
+        await loadState();
+        showMessage("Категория удалена и данные перенесены.");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    });
+
+    document.getElementById("removeCategoryName").addEventListener("change", updateReplacementCategoryOptions);
+    expenseItem.addEventListener("change", syncKnownItemDetails);
+    expenseItem.addEventListener("blur", syncKnownItemDetails);
+    expenseSearch.addEventListener("input", renderExpensesTable);
+    expenseFilterCategory.addEventListener("change", renderExpensesTable);
+    expenseFilterDateFrom.addEventListener("change", renderExpensesTable);
+    expenseFilterDateTo.addEventListener("change", renderExpensesTable);
+    expenseCancelEditButton.addEventListener("click", () => {
+      clearExpenseEditing();
+      clearMessage();
+    });
+    resetExpenseFiltersButton.addEventListener("click", () => {
+      expenseSearch.value = "";
+      expenseFilterCategory.value = "";
+      expenseFilterDateFrom.value = "";
+      expenseFilterDateTo.value = "";
+      renderExpensesTable();
+    });
+    refreshButton.addEventListener("click", loadState);
+
+    loadState().catch((error) => {
+      showMessage(error.message, "error");
+    });
+  </script>
+</body>
+</html>
